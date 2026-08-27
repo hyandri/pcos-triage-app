@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 from django.test import SimpleTestCase
 
 from .utils import (
@@ -45,7 +46,9 @@ class InferenceEngineTests(SimpleTestCase):
     def test_build_feature_array_preserves_dictionary_order_contract(self):
         features = build_feature_array("symptom", self.payload)
 
+        self.assertIsInstance(features, pd.DataFrame)
         self.assertEqual(features.shape, (1, 10))
+        self.assertEqual(tuple(features.columns), SYMPTOM_FEATURES)
         np.testing.assert_allclose(
             features,
             [[28, 65.5, 165, 24.1, 4, 35, 2, 1, 0, 0]],
@@ -73,7 +76,9 @@ class InferenceEngineTests(SimpleTestCase):
         self.assertEqual(result["probabilities"], {"0": 0.25, "1": 0.75})
         self.assertEqual(result["positive_probability"], 0.75)
         self.assertEqual(result["risk_tier"], "high")
+        self.assertIsInstance(model.received, pd.DataFrame)
         self.assertEqual(model.received.shape, (1, 10))
+        self.assertEqual(tuple(model.received.columns), SYMPTOM_FEATURES)
 
     def test_clinical_mapping_requires_explicit_complete_model_contract(self):
         with self.assertRaisesRegex(Exception, "seven unspecified clinical feature names"):

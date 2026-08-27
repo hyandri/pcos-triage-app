@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 
 import joblib
 import numpy as np
+import pandas as pd
 
 
 MODEL_DIR = Path(__file__).resolve().parent / "models"
@@ -99,19 +100,39 @@ def _configured_full_feature_names() -> tuple[str, ...] | None:
     return tuple(str(name).strip() for name in names)
 
 
+def _feature_names_from_pipeline(model: Any) -> tuple[str, ...] | None:
+    """Find feature-name metadata on a fitted estimator or nested pipeline step."""
+    candidates = [model]
+    named_steps = getattr(model, "named_steps", None)
+    if named_steps:
+        candidates.extend(named_steps.values())
+    steps = getattr(model, "steps", None)
+    if steps:
+        candidates.extend(step for _, step in steps)
+
+    for estimator in candidates:
+        model_names = getattr(estimator, "feature_names_in_", None)
+        if model_names is not None:
+            return tuple(str(name) for name in model_names)
+    return None
+
+
 def feature_names_for_model(assessment_type: str, model: Any | None = None) -> tuple[str, ...]:
     """Return the exact feature order, preferring metadata embedded in the trained model."""
+    model_names = _feature_names_from_pipeline(model) if model is not None else None
+
     if assessment_type == "symptom":
-        return SYMPTOM_FEATURES
+        names = model_names or SYMPTOM_FEATURES
+        if len(names) != 10:
+            raise ModelArtifactError(f"Symptom model contract must contain exactly 10 features; got {len(names)}")
+        if names != SYMPTOM_FEATURES:
+            raise ModelArtifactError("Symptom model feature order does not match ML_DATA_DICTIONARY.md")
+        return names
+
     if assessment_type != "clinical":
         raise FeatureValidationError(f"Unsupported assessment type: {assessment_type}")
 
-    model_names = getattr(model, "feature_names_in_", None)
-    if model_names is not None:
-        names = tuple(str(name) for name in model_names)
-    else:
-        names = _configured_full_feature_names()
-
+    names = model_names or _configured_full_feature_names()
     if names is None:
         raise ModelArtifactError(
             "The clinical model does not expose feature_names_in_, and the seven unspecified "
@@ -171,14 +192,14 @@ def _value_for_feature(name: str, value: Any) -> int | float:
     return _number(value, name, integer=name in {"Cycle length", "Marraige Status", "Follicle No. (R)", "Follicle No. (L)"})
 
 
-def build_feature_array(assessment_type: str, payload: Mapping[str, Any], model: Any | None = None) -> np.ndarray:
-    """Validate and map a JSON object into a 2-D array in the trained model's exact order."""
+def build_feature_dataframe(assessment_type: str, payload: Mapping[str, Any], model: Any | None = None) -> pd.DataFrame:
+    """Validate and map a JSON object into a named DataFrame in exact model order."""
     if not isinstance(payload, Mapping):
         raise FeatureValidationError("features must be a JSON object")
-    names = feature_names_for_model(assessment_type, model)
-    expected = set(names)
+    expected_feature_names = feature_names_for_model(assessment_type, model)
+    expected = set(expected_feature_names)
     provided = set(payload)
-    missing = [name for name in names if name not in provided]
+    missing = [name for name in expected_feature_names if name not in provided]
     extra = sorted(provided - expected)
     if missing or extra:
         details = []
@@ -187,8 +208,17 @@ def build_feature_array(assessment_type: str, payload: Mapping[str, Any], model:
         if extra:
             details.append(f"unexpected fields: {', '.join(extra)}")
         raise FeatureValidationError("Invalid feature payload (" + "; ".join(details) + ")")
-    values = [_value_for_feature(name, payload[name]) for name in names]
-    return np.asarray([values], dtype=float).reshape(1, len(names))
+
+    ordered_features_dict = {
+        name: _value_for_feature(name, payload[name])
+        for name in expected_feature_names
+    }
+    return pd.DataFrame([ordered_features_dict], columns=expected_feature_names)
+
+
+# Kept as a compatibility alias for callers that used the old helper name.
+def build_feature_array(assessment_type: str, payload: Mapping[str, Any], model: Any | None = None) -> pd.DataFrame:
+    return build_feature_dataframe(assessment_type, payload, model=model)
 
 
 def _risk_tier(probability: float) -> str:
@@ -202,18 +232,19 @@ def _risk_tier(probability: float) -> str:
 def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Run predict and predict_proba, returning JSON-serializable inference results."""
     model = load_model(assessment_type)
-    features = build_feature_array(assessment_type, payload, model=model)
+    df = build_feature_dataframe(assessment_type, payload, model=model)
     received_features_dict = payload
-    ordered_numpy_array = features
+    ordered_features_dict = df.to_dict(orient="records")[0]
 
     try:
-        raw_probabilities = model.predict_proba(ordered_numpy_array)
+        raw_probabilities = model.predict_proba(df)
         probabilities = np.asarray(raw_probabilities, dtype=float)
 
         print(f"--- ML DEBUG: Raw received features ---", flush=True)
         print(received_features_dict, flush=True)
-        print(f"--- ML DEBUG: Ordered Numpy Array fed to model ---", flush=True)
-        print(ordered_numpy_array, flush=True)
+        print(f"--- ML DEBUG: Ordered DataFrame fed to model ---", flush=True)
+        print(ordered_features_dict, flush=True)
+        print(df, flush=True)
         print(f"--- ML DEBUG: Raw Model Output ---", flush=True)
         print(probabilities, flush=True)
 
@@ -231,7 +262,7 @@ def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         risk_tier = _risk_tier(positive_probability)
         print(f"positive_probability={positive_probability} -> risk_tier={risk_tier}", flush=True)
 
-        prediction = np.asarray(model.predict(ordered_numpy_array)).reshape(-1)
+        prediction = np.asarray(model.predict(df)).reshape(-1)
     except Exception as exc:
         raise InferenceError(f"Model inference failed: {exc}") from exc
     if probabilities.ndim != 2 or probabilities.shape[0] != 1 or probabilities.shape[1] == 0:
@@ -245,7 +276,7 @@ def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         "probabilities": probability_map,
         "positive_probability": positive_probability,
         "risk_tier": risk_tier,
-        "feature_count": int(features.shape[1]),
+        "feature_count": int(df.shape[1]),
     }
 
 
