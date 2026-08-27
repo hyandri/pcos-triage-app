@@ -203,9 +203,35 @@ def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Run predict and predict_proba, returning JSON-serializable inference results."""
     model = load_model(assessment_type)
     features = build_feature_array(assessment_type, payload, model=model)
+    received_features_dict = payload
+    ordered_numpy_array = features
+
     try:
-        probabilities = np.asarray(model.predict_proba(features), dtype=float)
-        prediction = np.asarray(model.predict(features)).reshape(-1)
+        raw_probabilities = model.predict_proba(ordered_numpy_array)
+        probabilities = np.asarray(raw_probabilities, dtype=float)
+
+        print(f"--- ML DEBUG: Raw received features ---", flush=True)
+        print(received_features_dict, flush=True)
+        print(f"--- ML DEBUG: Ordered Numpy Array fed to model ---", flush=True)
+        print(ordered_numpy_array, flush=True)
+        print(f"--- ML DEBUG: Raw Model Output ---", flush=True)
+        print(probabilities, flush=True)
+
+        positive_probability = float(probabilities[0, -1])
+        print(f"--- ML DEBUG: Risk Tier Logic ---", flush=True)
+        print(
+            "if positive_probability < 1 / 3:\n"
+            "    risk_tier = 'low'\n"
+            "elif positive_probability < 2 / 3:\n"
+            "    risk_tier = 'moderate'\n"
+            "else:\n"
+            "    risk_tier = 'high'",
+            flush=True,
+        )
+        risk_tier = _risk_tier(positive_probability)
+        print(f"positive_probability={positive_probability} -> risk_tier={risk_tier}", flush=True)
+
+        prediction = np.asarray(model.predict(ordered_numpy_array)).reshape(-1)
     except Exception as exc:
         raise InferenceError(f"Model inference failed: {exc}") from exc
     if probabilities.ndim != 2 or probabilities.shape[0] != 1 or probabilities.shape[1] == 0:
@@ -214,12 +240,11 @@ def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         raise InferenceError("Model returned an invalid prediction shape")
     classes = getattr(model, "classes_", np.arange(probabilities.shape[1]))
     probability_map = {str(label): float(probability) for label, probability in zip(classes, probabilities[0])}
-    positive_probability = float(probabilities[0, -1])
     return {
         "prediction": prediction[0].item() if hasattr(prediction[0], "item") else prediction[0],
         "probabilities": probability_map,
         "positive_probability": positive_probability,
-        "risk_tier": _risk_tier(positive_probability),
+        "risk_tier": risk_tier,
         "feature_count": int(features.shape[1]),
     }
 
