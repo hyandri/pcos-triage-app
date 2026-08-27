@@ -177,8 +177,6 @@ def feature_names_for_model(assessment_type: str, model: Any | None = None) -> t
         )
     if len(names) != 33:
         raise ModelArtifactError(f"Clinical model contract must contain exactly 33 features; got {len(names)}")
-    if names[:10] != SYMPTOM_FEATURES:
-        raise ModelArtifactError("Clinical model feature order does not begin with the exact 10 symptom features")
     return names
 
 

@@ -10,6 +10,7 @@ from .utils import (
     SYMPTOM_FEATURES,
     build_feature_array,
     build_feature_dataframe,
+    feature_names_for_model,
     predict,
 )
 
@@ -32,6 +33,23 @@ class FakeModel:
 
 class DatasetNamedFakeModel(FakeModel):
     feature_names_in_ = np.array([FRONTEND_TO_MODEL_MAP[key] for key in SYMPTOM_FEATURES])
+
+
+CLINICAL_MODEL_FEATURES = (
+    "Age (yrs)", "Weight (Kg)", "Height(Cm)", "BMI", "Hb(g/dl)",
+    "Cycle(R/I)", "Cycle length(days)", "Marraige Status (Yrs)",
+    "No. of aborptions", "I   beta-HCG(mIU/mL)", "II    beta-HCG(mIU/mL)",
+    "FSH(mIU/mL)", "LH(mIU/mL)", "FSH/LH", "Hip(inch)", "Waist(inch)",
+    "Waist:Hip Ratio", "TSH (mIU/L)", "AMH(ng/mL)", "PRL(ng/mL)",
+    "Vit D3 (ng/mL)", "PRG(ng/mL)", "RBS(mg/dl)", "Weight gain(Y/N)",
+    "hair growth(Y/N)", "Skin darkening (Y/N)", "Fast food (Y/N)",
+    "Follicle No. (L)", "Follicle No. (R)", "Avg. F size (L) (mm)",
+    "Avg. F size (R) (mm)", "Endometrium (mm)", "Avg_Follicle_Count",
+)
+
+
+class ClinicalModelWithIndependentOrder:
+    feature_names_in_ = np.array(CLINICAL_MODEL_FEATURES)
 
 
 class InferenceEngineTests(SimpleTestCase):
@@ -118,6 +136,12 @@ class InferenceEngineTests(SimpleTestCase):
                 self.assertEqual(result["prediction"], expected_prediction)
                 self.assertEqual(result["positive_probability"], probability)
                 self.assertEqual(result["risk_tier"], expected_risk_tier)
+
+    def test_clinical_model_accepts_its_own_33_column_order(self):
+        names = feature_names_for_model("clinical", ClinicalModelWithIndependentOrder())
+
+        self.assertEqual(names, CLINICAL_MODEL_FEATURES)
+        self.assertNotEqual(names[:10], SYMPTOM_FEATURES)
 
     def test_clinical_mapping_requires_explicit_complete_model_contract(self):
         with self.assertRaisesRegex(Exception, "seven unspecified clinical feature names"):
