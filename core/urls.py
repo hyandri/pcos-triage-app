@@ -24,6 +24,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', RedirectView.as_view(pattern_name='accounts:dashboard', permanent=False)),
     path('accounts/', include('accounts.urls')),
+    path('api/ml/', include('ml_engine.urls')),
 ]
 
 if settings.DEBUG:
