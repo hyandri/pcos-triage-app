@@ -18,16 +18,16 @@ class FakeModel:
     classes_ = np.array([0, 1])
     feature_names_in_ = np.array(SYMPTOM_FEATURES)
 
-    def __init__(self):
+    def __init__(self, probability=0.75):
         self.received = None
+        self.probability = probability
 
     def predict(self, features):
-        self.received = features
-        return np.array([1])
+        raise AssertionError("predict() must not be used to determine the thresholded prediction")
 
     def predict_proba(self, features):
         self.received = features
-        return np.array([[0.25, 0.75]])
+        return np.array([[1 - self.probability, self.probability]])
 
 
 class DatasetNamedFakeModel(FakeModel):
@@ -97,10 +97,27 @@ class InferenceEngineTests(SimpleTestCase):
         self.assertEqual(result["feature_count"], 10)
         self.assertEqual(result["probabilities"], {"0": 0.25, "1": 0.75})
         self.assertEqual(result["positive_probability"], 0.75)
-        self.assertEqual(result["risk_tier"], "high")
+        self.assertEqual(result["risk_tier"], "High Risk")
         self.assertIsInstance(model.received, pd.DataFrame)
         self.assertEqual(model.received.shape, (1, 10))
         self.assertEqual(tuple(model.received.columns), SYMPTOM_FEATURES)
+
+    @patch("ml_engine.utils.load_model")
+    def test_prediction_and_risk_tier_use_the_custom_probability_threshold(self, load_model):
+        for probability, expected_prediction, expected_risk_tier in (
+            (0.19, 0, "Low Risk"),
+            (0.20, 1, "Moderate Risk"),
+            (0.49, 1, "Moderate Risk"),
+            (0.50, 1, "High Risk"),
+        ):
+            with self.subTest(probability=probability):
+                load_model.return_value = FakeModel(probability=probability)
+
+                result = predict("symptom", self.payload)
+
+                self.assertEqual(result["prediction"], expected_prediction)
+                self.assertEqual(result["positive_probability"], probability)
+                self.assertEqual(result["risk_tier"], expected_risk_tier)
 
     def test_clinical_mapping_requires_explicit_complete_model_contract(self):
         with self.assertRaisesRegex(Exception, "seven unspecified clinical feature names"):

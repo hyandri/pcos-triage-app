@@ -288,12 +288,13 @@ def build_feature_array(assessment_type: str, payload: Mapping[str, Any], model:
     return build_feature_dataframe(assessment_type, payload, model=model)
 
 
-def _risk_tier(probability: float) -> str:
-    if probability < 1 / 3:
-        return "low"
-    if probability < 2 / 3:
-        return "moderate"
-    return "high"
+def _risk_tier(raw_probability: float) -> str:
+    """Apply the sensitivity-first clinical threshold policy."""
+    if raw_probability < 0.20:
+        return "Low Risk"
+    if raw_probability < 0.50:
+        return "Moderate Risk"
+    return "High Risk"
 
 
 def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -309,42 +310,49 @@ def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     try:
         raw_probabilities = model.predict_proba(df)
         probabilities = np.asarray(raw_probabilities, dtype=float)
+        if probabilities.ndim != 2 or probabilities.shape[0] != 1 or probabilities.shape[1] == 0:
+            raise InferenceError("Model returned an invalid probability shape")
 
-        print(f"--- ML DEBUG: Raw received features ---", flush=True)
+        print("--- ML DEBUG: Raw received features ---", flush=True)
         print(received_features_dict, flush=True)
-        print(f"--- ML DEBUG: Ordered DataFrame fed to model ---", flush=True)
+        print("--- ML DEBUG: Exact model expected feature names ---", flush=True)
+        print(expected_feature_names, flush=True)
+        print("--- ML DEBUG: Ordered DataFrame fed to model ---", flush=True)
         print(ordered_features_dict, flush=True)
         print(df, flush=True)
-        print(f"--- ML DEBUG: Raw Model Output ---", flush=True)
+        print("--- ML DEBUG: Raw Model Output ---", flush=True)
         print(probabilities, flush=True)
 
-        positive_probability = float(probabilities[0, -1])
-        print(f"--- ML DEBUG: Risk Tier Logic ---", flush=True)
+        raw_probability = float(probabilities[0, -1])
+        is_positive = raw_probability >= 0.20
+        prediction = 1 if is_positive else 0
+        risk_tier = _risk_tier(raw_probability)
+
+        print("--- ML DEBUG: Risk Tier Logic ---", flush=True)
         print(
-            "if positive_probability < 1 / 3:\n"
-            "    risk_tier = 'low'\n"
-            "elif positive_probability < 2 / 3:\n"
-            "    risk_tier = 'moderate'\n"
-            "else:\n"
-            "    risk_tier = 'high'",
+            "raw_probability < 0.20 -> risk_tier = 'Low Risk'\n"
+            "0.20 <= raw_probability < 0.50 -> risk_tier = 'Moderate Risk'\n"
+            "raw_probability >= 0.50 -> risk_tier = 'High Risk'\n"
+            "is_positive = raw_probability >= 0.20\n"
+            "prediction = 1 if is_positive else 0",
             flush=True,
         )
-        risk_tier = _risk_tier(positive_probability)
-        print(f"positive_probability={positive_probability} -> risk_tier={risk_tier}", flush=True)
-
-        prediction = np.asarray(model.predict(df)).reshape(-1)
+        print(
+            f"raw_probability={raw_probability} -> is_positive={is_positive}, "
+            f"prediction={prediction}, risk_tier={risk_tier}",
+            flush=True,
+        )
+    except InferenceError:
+        raise
     except Exception as exc:
         raise InferenceError(f"Model inference failed: {exc}") from exc
-    if probabilities.ndim != 2 or probabilities.shape[0] != 1 or probabilities.shape[1] == 0:
-        raise InferenceError("Model returned an invalid probability shape")
-    if prediction.size != 1:
-        raise InferenceError("Model returned an invalid prediction shape")
+
     classes = getattr(model, "classes_", np.arange(probabilities.shape[1]))
     probability_map = {str(label): float(probability) for label, probability in zip(classes, probabilities[0])}
     return {
-        "prediction": prediction[0].item() if hasattr(prediction[0], "item") else prediction[0],
+        "prediction": prediction,
         "probabilities": probability_map,
-        "positive_probability": positive_probability,
+        "positive_probability": raw_probability,
         "risk_tier": risk_tier,
         "feature_count": int(df.shape[1]),
     }
