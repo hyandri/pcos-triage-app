@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+
+{% block title %}Quick Symptom Assessment — PCOS Triage{% endblock %}
+
+{% block content %}
+<style>
+    [x-cloak] { display: none !important; }
+</style>
+
+<div x-data="symptomAssessment()" x-cloak class="mx-auto max-w-3xl">
+    <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <a href="{% url 'accounts:dashboard' %}" class="inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-700">
+                <span aria-hidden="true" class="mr-2">←</span> Back to dashboard
+            </a>
+            <p class="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Stage 1 · Quick check</p>
+            <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Let’s understand your symptoms</h1>
+            <p class="mt-3 max-w-2xl text-slate-600">Answer each question at your own pace. Your responses are used to generate an initial risk estimate.</p>
+        </div>
+        <div class="rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-sm text-brand-800 sm:min-w-32 sm:text-center">
+            <span class="block text-xs font-semibold uppercase tracking-wide text-brand-600">Progress</span>
+            <span class="mt-1 block text-lg font-bold"><span x-text="currentStep + 1"></span> of <span x-text="steps.length"></span></span>
+        </div>
+    </div>
+
+    <div x-show="!result" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+        <div class="mb-8" aria-hidden="true">
+            <div class="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div class="h-full rounded-full bg-brand-600 transition-all duration-300" :style="`width: ${progress}%`"></div>
+            </div>
+        </div>
+
+        <div class="min-h-[23rem]">
+            <template x-for="(step, index) in steps" :key="step.key">
+                <section x-show="currentStep === index" x-transition.opacity class="flex min-h-[23rem] flex-col justify-between" :aria-labelledby="`question-${index}`">
+                    <div>
+                        <span class="text-sm font-semibold text-brand-600" x-text="`Question ${index + 1}`"></span>
+                        <h2 :id="`question-${index}`" class="mt-3 text-2xl font-bold leading-tight text-slate-900 sm:text-3xl" x-text="step.label"></h2>
+                        <p class="mt-3 text-slate-600" x-text="step.help"></p>
+
+                        <div class="mt-10">
+                            <template x-if="step.type === 'number'">
+                                <label :for="`field-${index}`" class="block max-w-sm">
+                                    <span class="sr-only" x-text="step.label"></span>
+                                    <div class="flex items-center gap-3">
+                                        <input
+                                            :id="`field-${index}`"
+                                            :name="step.key"
+                                            type="number"
+                                            x-model.number="state[step.key]"
+                                            :min="step.min"
+                                            :max="step.max"
+                                            :step="step.step"
+                                            required
+                                            class="w-full rounded-2xl border border-slate-300 px-5 py-4 text-2xl font-semibold text-slate-900 shadow-sm outline-none transition placeholder:text-slate-300 focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+                                            :placeholder="step.placeholder"
+                                        >
+                                        <span class="shrink-0 text-sm font-medium text-slate-500" x-text="step.suffix"></span>
+                                    </div>
+                                </label>
+                            </template>
+
+                            <template x-if="step.type === 'bmi'">
+                                <div class="max-w-sm rounded-2xl border border-brand-100 bg-brand-50 px-5 py-6">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-brand-600">Calculated from weight and height</p>
+                                    <p class="mt-3 text-5xl font-bold text-brand-700"><span x-text="bmiDisplay"></span></p>
+                                    <p class="mt-2 text-sm text-slate-600">kg/m²</p>
+                                    <p x-show="!bmiValue" class="mt-4 text-sm text-amber-700">Complete your weight and height first.</p>
+                                </div>
+                            </template>
+
+                            <template x-if="step.type === 'cycle'">
+                                <div class="grid max-w-sm gap-3 sm:grid-cols-2">
+                                    <template x-for="option in ['Regular', 'Irregular']" :key="option">
+                                        <button
+                                            type="button"
+                                            @click="state[step.key] = option"
+                                            :aria-pressed="state[step.key] === option"
+                                            :class="state[step.key] === option ? 'border-brand-600 bg-brand-50 text-brand-700 ring-2 ring-brand-100' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50'"
+                                            class="rounded-2xl border px-5 py-5 text-left font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+                                        >
+                                            <span class="block text-lg" x-text="option"></span>
+                                            <span class="mt-1 block text-sm font-normal text-slate-500" x-text="option === 'Regular' ? 'Cycles follow a predictable pattern' : 'Cycles vary or are less predictable'"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
+
+                            <template x-if="step.type === 'binary'">
+                                <div class="grid max-w-sm gap-3 sm:grid-cols-2">
+                                    <template x-for="option in [true, false]" :key="String(option)">
+                                        <button
+                                            type="button"
+                                            @click="state[step.key] = option"
+                                            :aria-pressed="state[step.key] === option"
+                                            :class="state[step.key] === option ? 'border-brand-600 bg-brand-50 text-brand-700 ring-2 ring-brand-100' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50'"
+                                            class="rounded-2xl border px-5 py-5 text-left font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2"
+                                        >
+                                            <span class="block text-lg" x-text="option ? 'Yes' : 'No'"></span>
+                                            <span class="mt-1 block text-sm font-normal text-slate-500" x-text="option ? 'This applies to me' : 'This does not apply to me'"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <p x-show="errorMessage && currentStep === index" role="alert" class="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" x-text="errorMessage"></p>
+                </section>
+            </template>
+        </div>
+
+        <div class="mt-8 flex items-center justify-between gap-4 border-t border-slate-100 pt-6">
+            <button
+                type="button"
+                @click="previous()"
+                :disabled="currentStep === 0 || loading"
+                class="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+                Previous
+            </button>
+            <button
+                type="button"
+                @click="next()"
+                :disabled="loading"
+                class="inline-flex min-w-36 items-center justify-center rounded-xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+                <span x-show="!loading" x-text="currentStep === steps.length - 1 ? 'Calculate Risk' : 'Next'"></span>
+                <span x-show="loading" class="inline-flex items-center gap-2">
+                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                    </svg>
+                    Calculating…
+                </span>
+            </button>
+        </div>
+    </div>
+
+    <div x-show="errorMessage && result" role="alert" class="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" x-text="errorMessage"></div>
+
+    {% include "triage/results.html" %}
+
+    <p class="mt-6 text-center text-xs leading-5 text-slate-500">This tool provides an initial estimate and is not a diagnosis or a substitute for professional medical advice.</p>
+
+    <form class="hidden" aria-hidden="true">
+        {% csrf_token %}
+    </form>
+</div>
+
+<script>
+    function symptomAssessment() {
+        return {
+            currentStep: 0,
+            loading: false,
+            result: null,
+            errorMessage: '',
+            state: {
+                'Age': null,
+                'Weight': null,
+                'Height': null,
+                'BMI': null,
+                'Cycle(R/I)': null,
+                'Cycle length': null,
+                'Marraige Status': null,
+                'Weight gain': null,
+                'hair growth': null,
+                'Skin darkening': null,
+            },
+            steps: [
+                { key: 'Age', label: 'How old are you?', help: 'Enter your age in years.', type: 'number', min: 10, max: 100, step: 1, suffix: 'years', placeholder: '25' },
+                { key: 'Weight', label: 'What is your weight?', help: 'Use kilograms (kg).', type: 'number', min: 1, max: 500, step: 0.1, suffix: 'kg', placeholder: '70.5' },
+                { key: 'Height', label: 'What is your height?', help: 'Use centimeters (cm).', type: 'number', min: 50, max: 250, step: 0.1, suffix: 'cm', placeholder: '165' },
+                { key: 'BMI', label: 'What is your BMI?', help: 'This is calculated automatically from your weight and height.', type: 'bmi' },
+                { key: 'Cycle(R/I)', label: 'How would you describe your cycle?', help: 'Choose the option that best describes your usual cycle pattern.', type: 'cycle' },
+                { key: 'Cycle length', label: 'How long is your cycle?', help: 'Count from the first day of one period to the first day of the next.', type: 'number', min: 1, max: 120, step: 1, suffix: 'days', placeholder: '35' },
+                { key: 'Marraige Status', label: 'How many years have you been married?', help: 'Enter 0 if this does not apply to you.', type: 'number', min: 0, max: 100, step: 1, suffix: 'years', placeholder: '2' },
+                { key: 'Weight gain', label: 'Have you experienced weight gain?', help: 'Consider noticeable or unexplained weight gain.', type: 'binary' },
+                { key: 'hair growth', label: 'Have you noticed excess hair growth?', help: 'Consider increased facial or body hair growth.', type: 'binary' },
+                { key: 'Skin darkening', label: 'Have you noticed skin darkening?', help: 'Consider areas such as the neck, underarms, or inner thighs.', type: 'binary' },
+            ],
+            get progress() {
+                return ((this.currentStep + 1) / this.steps.length) * 100;
+            },
+            get bmiValue() {
+                const weight = Number(this.state['Weight']);
+                const height = Number(this.state['Height']);
+                if (!weight || !height || height <= 0) return null;
+                return weight / Math.pow(height / 100, 2);
+            },
+            get bmiDisplay() {
+                return this.bmiValue === null ? '—' : this.bmiValue.toFixed(1);
+            },
+            canAdvance() {
+                const step = this.steps[this.currentStep];
+                const value = this.state[step.key];
+                if (step.type === 'bmi') return this.bmiValue !== null;
+                if (step.type === 'binary' || step.type === 'cycle') return value !== null;
+                const number = Number(value);
+                return value !== null && value !== '' && Number.isFinite(number) && number >= step.min && number <= step.max;
+            },
+            previous() {
+                this.errorMessage = '';
+                if (this.currentStep > 0) this.currentStep -= 1;
+            },
+            next() {
+                this.errorMessage = '';
+                if (!this.canAdvance()) {
+                    this.errorMessage = 'Please provide a valid answer before continuing.';
+                    return;
+                }
+                if (this.currentStep < this.steps.length - 1) {
+                    this.currentStep += 1;
+                } else {
+                    this.submit();
+                }
+            },
+            csrfToken() {
+                const cookie = document.cookie.split('; ').find(row => row.startsWith('csrftoken='));
+                const cookieToken = cookie ? decodeURIComponent(cookie.split('=')[1]) : '';
+                return cookieToken || document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            },
+            async submit() {
+                this.loading = true;
+                this.errorMessage = '';
+                const features = { ...this.state, 'BMI': Number(this.bmiValue.toFixed(1)) };
+                try {
+                    const response = await fetch('{% url "ml_engine:predict" %}', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRFToken': this.csrfToken(),
+                        },
+                        body: JSON.stringify({ assessment_type: 'symptom', features }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'We could not calculate your result. Please try again.');
+                    this.result = data;
+                } catch (error) {
+                    this.errorMessage = error.message || 'Something went wrong. Please try again.';
+                } finally {
+                    this.loading = false;
+                }
+            },
+            formatProbability(value) {
+                return `${(Number(value) * 100).toFixed(1)}%`;
+            },
+            riskClass() {
+                const styles = {
+                    low: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+                    moderate: 'border-amber-200 bg-amber-50 text-amber-800',
+                    high: 'border-red-200 bg-red-50 text-red-800',
+                };
+                return styles[this.result?.risk_tier] || 'border-slate-200 bg-slate-50 text-slate-700';
+            },
+        };
+    }
+</script>
+{% endblock %}
