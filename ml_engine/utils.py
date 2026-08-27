@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -27,6 +28,43 @@ SYMPTOM_FEATURES: tuple[str, ...] = (
     "hair growth",
     "Skin darkening",
 )
+
+# Clean keys used by the frontend mapped to the original dataset/model names.
+# The model metadata remains authoritative when it is available at runtime.
+FRONTEND_TO_MODEL_MAP: dict[str, str] = {
+    "Age": "Age (yrs)",
+    "Weight": "Weight (Kg)",
+    "Height": "Height(Cm)",
+    "BMI": "BMI",
+    "Cycle(R/I)": "Cycle(R/I)",
+    "Cycle length": "Cycle length(days)",
+    "Marraige Status": "Marraige Status (Yrs)",
+    "Weight gain": "Weight gain(Y/N)",
+    "hair growth": "hair growth(Y/N)",
+    "Skin darkening": "Skin darkening (Y/N)",
+}
+
+FRONTEND_FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
+    "Age": ("Age", "Age (yrs)", "Age(yrs)"),
+    "Weight": ("Weight", "Weight (Kg)", "Weight(Kg)"),
+    "Height": ("Height", "Height(Cm)", "Height (Cm)"),
+    "BMI": ("BMI",),
+    "Cycle(R/I)": ("Cycle(R/I)", "Cycle (R/I)"),
+    "Cycle length": ("Cycle length", "Cycle length(days)", "Cycle length (days)"),
+    "Marraige Status": (
+        "Marraige Status",
+        "Marraige Status (Yrs)",
+        "Marraige Status(Yrs)",
+        "Marriage Status (Yrs)",
+    ),
+    "Weight gain": ("Weight gain", "Weight gain(Y/N)", "Weight gain (Y/N)"),
+    "hair growth": ("hair growth", "hair growth(Y/N)", "hair growth (Y/N)"),
+    "Skin darkening": (
+        "Skin darkening",
+        "Skin darkening (Y/N)",
+        "Skin darkening(Y/N)",
+    ),
+}
 
 KNOWN_CLINICAL_FEATURES: tuple[str, ...] = (
     "Follicle No. (R)",
@@ -122,11 +160,9 @@ def feature_names_for_model(assessment_type: str, model: Any | None = None) -> t
     model_names = _feature_names_from_pipeline(model) if model is not None else None
 
     if assessment_type == "symptom":
-        names = model_names or SYMPTOM_FEATURES
+        names = model_names or tuple(FRONTEND_TO_MODEL_MAP[key] for key in SYMPTOM_FEATURES)
         if len(names) != 10:
             raise ModelArtifactError(f"Symptom model contract must contain exactly 10 features; got {len(names)}")
-        if names != SYMPTOM_FEATURES:
-            raise ModelArtifactError("Symptom model feature order does not match ML_DATA_DICTIONARY.md")
         return names
 
     if assessment_type != "clinical":
@@ -192,14 +228,45 @@ def _value_for_feature(name: str, value: Any) -> int | float:
     return _number(value, name, integer=name in {"Cycle length", "Marraige Status", "Follicle No. (R)", "Follicle No. (L)"})
 
 
+def _frontend_key_for_model_name(model_name: str) -> str | None:
+    """Resolve one trained-model column name back to its clean frontend key."""
+    normalized_model_name = re.sub(r"[^a-z0-9]", "", model_name.lower())
+    for frontend_key, aliases in FRONTEND_FEATURE_ALIASES.items():
+        candidates = aliases + (FRONTEND_TO_MODEL_MAP[frontend_key],)
+        if model_name in candidates:
+            return frontend_key
+        if normalized_model_name in {
+            re.sub(r"[^a-z0-9]", "", candidate.lower())
+            for candidate in candidates
+        }:
+            return frontend_key
+    return None
+
+
 def build_feature_dataframe(assessment_type: str, payload: Mapping[str, Any], model: Any | None = None) -> pd.DataFrame:
-    """Validate and map a JSON object into a named DataFrame in exact model order."""
+    """Validate clean frontend keys and return a DataFrame named for the trained model."""
     if not isinstance(payload, Mapping):
         raise FeatureValidationError("features must be a JSON object")
     expected_feature_names = feature_names_for_model(assessment_type, model)
-    expected = set(expected_feature_names)
+
+    if assessment_type == "symptom":
+        model_to_frontend = {
+            model_name: _frontend_key_for_model_name(model_name)
+            for model_name in expected_feature_names
+        }
+        unresolved = [model_name for model_name, frontend_key in model_to_frontend.items() if frontend_key is None]
+        if unresolved:
+            raise ModelArtifactError(
+                "No frontend mapping exists for model feature names: " + ", ".join(unresolved)
+            )
+        expected_frontend_keys = tuple(model_to_frontend[name] for name in expected_feature_names)
+    else:
+        model_to_frontend = {name: name for name in expected_feature_names}
+        expected_frontend_keys = expected_feature_names
+
+    expected = set(expected_frontend_keys)
     provided = set(payload)
-    missing = [name for name in expected_feature_names if name not in provided]
+    missing = [name for name in expected_frontend_keys if name not in provided]
     extra = sorted(provided - expected)
     if missing or extra:
         details = []
@@ -210,8 +277,8 @@ def build_feature_dataframe(assessment_type: str, payload: Mapping[str, Any], mo
         raise FeatureValidationError("Invalid feature payload (" + "; ".join(details) + ")")
 
     ordered_features_dict = {
-        name: _value_for_feature(name, payload[name])
-        for name in expected_feature_names
+        model_name: _value_for_feature(frontend_key, payload[frontend_key])
+        for model_name, frontend_key in model_to_frontend.items()
     }
     return pd.DataFrame([ordered_features_dict], columns=expected_feature_names)
 
@@ -232,6 +299,9 @@ def _risk_tier(probability: float) -> str:
 def predict(assessment_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Run predict and predict_proba, returning JSON-serializable inference results."""
     model = load_model(assessment_type)
+    expected_feature_names = feature_names_for_model(assessment_type, model=model)
+    print("--- ML DEBUG: Exact model expected feature names ---", flush=True)
+    print(expected_feature_names, flush=True)
     df = build_feature_dataframe(assessment_type, payload, model=model)
     received_features_dict = payload
     ordered_features_dict = df.to_dict(orient="records")[0]
@@ -286,8 +356,10 @@ __all__ = [
     "InferenceError",
     "ModelArtifactError",
     "SYMPTOM_FEATURES",
+    "FRONTEND_TO_MODEL_MAP",
     "KNOWN_CLINICAL_FEATURES",
     "build_feature_array",
+    "build_feature_dataframe",
     "feature_names_for_model",
     "load_model",
     "predict",

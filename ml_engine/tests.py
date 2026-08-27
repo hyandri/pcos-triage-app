@@ -6,8 +6,10 @@ from django.test import SimpleTestCase
 
 from .utils import (
     FeatureValidationError,
+    FRONTEND_TO_MODEL_MAP,
     SYMPTOM_FEATURES,
     build_feature_array,
+    build_feature_dataframe,
     predict,
 )
 
@@ -26,6 +28,10 @@ class FakeModel:
     def predict_proba(self, features):
         self.received = features
         return np.array([[0.25, 0.75]])
+
+
+class DatasetNamedFakeModel(FakeModel):
+    feature_names_in_ = np.array([FRONTEND_TO_MODEL_MAP[key] for key in SYMPTOM_FEATURES])
 
 
 class InferenceEngineTests(SimpleTestCase):
@@ -48,7 +54,10 @@ class InferenceEngineTests(SimpleTestCase):
 
         self.assertIsInstance(features, pd.DataFrame)
         self.assertEqual(features.shape, (1, 10))
-        self.assertEqual(tuple(features.columns), SYMPTOM_FEATURES)
+        self.assertEqual(
+            tuple(features.columns),
+            tuple(FRONTEND_TO_MODEL_MAP[key] for key in SYMPTOM_FEATURES),
+        )
         np.testing.assert_allclose(
             features,
             [[28, 65.5, 165, 24.1, 4, 35, 2, 1, 0, 0]],
@@ -63,6 +72,19 @@ class InferenceEngineTests(SimpleTestCase):
 
         self.assertIn("missing fields: BMI", str(context.exception))
         self.assertIn("unexpected fields: unexpected", str(context.exception))
+
+    def test_frontend_keys_are_renamed_to_exact_dataset_model_columns(self):
+        model = DatasetNamedFakeModel()
+
+        dataframe = build_feature_dataframe("symptom", self.payload, model=model)
+
+        self.assertEqual(
+            tuple(dataframe.columns),
+            tuple(FRONTEND_TO_MODEL_MAP[key] for key in SYMPTOM_FEATURES),
+        )
+        self.assertEqual(dataframe.iloc[0]["Age (yrs)"], 28)
+        self.assertEqual(dataframe.iloc[0]["Weight (Kg)"], 65.5)
+        self.assertEqual(dataframe.iloc[0]["Cycle length(days)"], 35)
 
     @patch("ml_engine.utils.load_model")
     def test_predict_returns_probability_shape_and_risk_tier(self, load_model):
