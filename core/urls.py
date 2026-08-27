@@ -25,6 +25,7 @@ urlpatterns = [
     path('', RedirectView.as_view(pattern_name='accounts:dashboard', permanent=False)),
     path('accounts/', include('accounts.urls')),
     path('triage/', include('triage.urls')),
+    path('clinical/', include('clinical.urls')),
     path('api/ml/', include('ml_engine.urls')),
 ]
 

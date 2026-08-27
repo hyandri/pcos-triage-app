@@ -1,0 +1,351 @@
+{% extends "base.html" %}
+
+{% block title %}Full Clinical Assessment — PCOS Triage{% endblock %}
+
+{% block content %}
+<style>
+    [x-cloak] { display: none !important; }
+</style>
+
+<div x-data="clinicalAssessment()" x-cloak class="mx-auto max-w-6xl">
+    <div class="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+            <a href="{% url 'accounts:dashboard' %}" class="inline-flex items-center text-sm font-medium text-brand-600 hover:text-brand-700">
+                <span aria-hidden="true" class="mr-2">←</span> Back to dashboard
+            </a>
+            <p class="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Stage 2 · Clinical assessment</p>
+            <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Build a fuller picture</h1>
+            <p class="mt-3 max-w-3xl text-slate-600">Add your symptom, laboratory, lifestyle, and ultrasound information. You can enter values manually and optionally attach a report for your records.</p>
+        </div>
+        <div class="rounded-2xl border border-brand-100 bg-brand-50 px-5 py-4 text-sm text-brand-800 lg:max-w-xs">
+            <p class="font-semibold">Your information stays in your assessment history.</p>
+            <p class="mt-1 text-brand-700">A report upload is stored securely for future review; no OCR or automatic extraction is performed.</p>
+        </div>
+    </div>
+
+    <form @submit.prevent="submit()" class="space-y-6" novalidate>
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8" aria-labelledby="basic-heading">
+            <div class="mb-6 border-b border-slate-100 pb-5">
+                <p class="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Section 1</p>
+                <h2 id="basic-heading" class="mt-2 text-2xl font-bold text-slate-900">Basic Symptoms &amp; Anthropometrics</h2>
+                <p class="mt-2 text-sm text-slate-600">Start with your core symptom profile and body measurements.</p>
+            </div>
+            <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                <template x-for="field in sections.basic" :key="field.key">
+                    <div :class="field.type === 'derived' ? 'rounded-2xl border border-brand-100 bg-brand-50 p-4' : ''">
+                        <label :for="`clinical-${field.key}`" class="block text-sm font-semibold text-slate-700" x-text="field.label"></label>
+                        <p class="mt-1 text-xs leading-5 text-slate-500" x-text="field.help"></p>
+                        <template x-if="field.type === 'number'">
+                            <div class="mt-3 flex items-center gap-2">
+                                <input :id="`clinical-${field.key}`" :name="field.key" type="number" x-model.number="state[field.key]" :min="field.min" :max="field.max" :step="field.step" required class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
+                                <span class="shrink-0 text-xs font-medium text-slate-500" x-text="field.unit"></span>
+                            </div>
+                        </template>
+                        <template x-if="field.type === 'derived'">
+                            <div class="mt-3 flex items-baseline gap-2">
+                                <span class="text-2xl font-bold text-brand-700" x-text="derivedDisplay(field.key)"></span>
+                                <span class="text-xs font-medium text-slate-500" x-text="field.unit"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8" aria-labelledby="hormones-heading">
+            <div class="mb-6 border-b border-slate-100 pb-5">
+                <p class="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Section 2</p>
+                <h2 id="hormones-heading" class="mt-2 text-2xl font-bold text-slate-900">Cycle &amp; Hormones</h2>
+                <p class="mt-2 text-sm text-slate-600">Use the units shown on your laboratory report where applicable.</p>
+            </div>
+            <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                <template x-for="field in sections.hormones" :key="field.key">
+                    <div>
+                        <label :for="`clinical-${field.key}`" class="block text-sm font-semibold text-slate-700" x-text="field.label"></label>
+                        <p class="mt-1 text-xs leading-5 text-slate-500" x-text="field.help"></p>
+                        <template x-if="field.type === 'number'">
+                            <div class="mt-3 flex items-center gap-2">
+                                <input :id="`clinical-${field.key}`" :name="field.key" type="number" x-model.number="state[field.key]" :min="field.min" :max="field.max" :step="field.step" required class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
+                                <span class="shrink-0 text-xs font-medium text-slate-500" x-text="field.unit"></span>
+                            </div>
+                        </template>
+                        <template x-if="field.type === 'cycle'">
+                            <select :id="`clinical-${field.key}`" :name="field.key" x-model="state[field.key]" required class="mt-3 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
+                                <option value="" disabled>Select cycle pattern</option>
+                                <option value="Regular">Regular</option>
+                                <option value="Irregular">Irregular</option>
+                            </select>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8" aria-labelledby="ultrasound-heading">
+            <div class="mb-6 border-b border-slate-100 pb-5">
+                <p class="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Section 3</p>
+                <h2 id="ultrasound-heading" class="mt-2 text-2xl font-bold text-slate-900">Ultrasound Markers</h2>
+                <p class="mt-2 text-sm text-slate-600">Enter the values from your most recent ultrasound report.</p>
+            </div>
+            <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                <template x-for="field in sections.ultrasound" :key="field.key">
+                    <div>
+                        <label :for="`clinical-${field.key}`" class="block text-sm font-semibold text-slate-700" x-text="field.label"></label>
+                        <p class="mt-1 text-xs leading-5 text-slate-500" x-text="field.help"></p>
+                        <div class="mt-3 flex items-center gap-2">
+                            <input :id="`clinical-${field.key}`" :name="field.key" type="number" x-model.number="state[field.key]" :min="field.min" :max="field.max" :step="field.step" required class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-slate-900 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100">
+                            <span class="shrink-0 text-xs font-medium text-slate-500" x-text="field.unit"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8" aria-labelledby="lifestyle-heading">
+            <div class="mb-6 border-b border-slate-100 pb-5">
+                <p class="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Section 4</p>
+                <h2 id="lifestyle-heading" class="mt-2 text-2xl font-bold text-slate-900">Lifestyle</h2>
+                <p class="mt-2 text-sm text-slate-600">Choose Yes or No for each item.</p>
+            </div>
+            <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <template x-for="field in sections.lifestyle" :key="field.key">
+                    <fieldset>
+                        <legend class="text-sm font-semibold text-slate-700" x-text="field.label"></legend>
+                        <p class="mt-1 text-xs leading-5 text-slate-500" x-text="field.help"></p>
+                        <div class="mt-3 grid grid-cols-2 gap-2">
+                            <template x-for="option in [true, false]" :key="String(option)">
+                                <button type="button" @click="state[field.key] = option" :aria-pressed="state[field.key] === option" :class="state[field.key] === option ? 'border-brand-600 bg-brand-50 text-brand-700 ring-2 ring-brand-100' : 'border-slate-200 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50'" class="rounded-xl border px-3 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2" x-text="option ? 'Yes' : 'No'"></button>
+                            </template>
+                        </div>
+                    </fieldset>
+                </template>
+            </div>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8" aria-labelledby="report-heading">
+            <div class="mb-6">
+                <p class="text-sm font-semibold uppercase tracking-[0.18em] text-brand-600">Optional records</p>
+                <h2 id="report-heading" class="mt-2 text-2xl font-bold text-slate-900">Upload a medical report</h2>
+                <p class="mt-2 text-sm text-slate-600">Attach a PDF, JPG, or PNG. The file will be saved to this assessment for future review. It will not be parsed automatically.</p>
+            </div>
+            <label for="clinical-report" @dragover.prevent @drop.prevent="dropFile($event)" class="group flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center transition hover:border-brand-400 hover:bg-brand-50 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-100">
+                <span class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl text-brand-600 shadow-sm" aria-hidden="true">↑</span>
+                <span class="mt-4 text-sm font-semibold text-slate-800" x-text="file ? file.name : 'Drop your report here or browse'">Drop your report here or browse</span>
+                <span class="mt-1 text-xs text-slate-500">PDF, JPG, or PNG · Maximum 10 MB</span>
+                <input id="clinical-report" type="file" class="sr-only" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" @change="selectFile($event)">
+            </label>
+            <p x-show="file" class="mt-3 text-sm text-emerald-700" x-text="file ? `Selected: ${file.name}` : ''"></p>
+        </section>
+
+        <div x-show="errorMessage" role="alert" class="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800" x-text="errorMessage"></div>
+        <div x-show="uploadMessage" role="status" class="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800" x-text="uploadMessage"></div>
+
+        <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <a href="{% url 'accounts:dashboard' %}" class="rounded-xl border border-slate-200 px-6 py-3 text-center text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2">Cancel</a>
+            <button type="submit" :disabled="loading" class="inline-flex min-w-56 items-center justify-center rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70">
+                <span x-show="!loading">Calculate Clinical Risk</span>
+                <span x-show="loading" class="inline-flex items-center gap-2">
+                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                    Calculating…
+                </span>
+            </button>
+        </div>
+    </form>
+
+    {% include "clinical/results.html" %}
+
+    <p class="mt-6 text-center text-xs leading-5 text-slate-500">This tool provides an assessment estimate and is not a diagnosis or a substitute for professional medical advice.</p>
+
+    <form class="hidden" aria-hidden="true">{% csrf_token %}</form>
+</div>
+
+<script>
+    function clinicalAssessment() {
+        return {
+            loading: false,
+            result: null,
+            errorMessage: '',
+            uploadMessage: '',
+            file: null,
+            state: {
+                'Age (yrs)': null,
+                'Weight (Kg)': null,
+                'Height(Cm)': null,
+                'BMI': null,
+                'Hb(g/dl)': null,
+                'Cycle(R/I)': '',
+                'Cycle length(days)': null,
+                'Marraige Status (Yrs)': null,
+                'No. of aborptions': null,
+                'I   beta-HCG(mIU/mL)': null,
+                'II    beta-HCG(mIU/mL)': null,
+                'FSH(mIU/mL)': null,
+                'LH(mIU/mL)': null,
+                'FSH/LH': null,
+                'Hip(inch)': null,
+                'Waist(inch)': null,
+                'Waist:Hip Ratio': null,
+                'TSH (mIU/L)': null,
+                'AMH(ng/mL)': null,
+                'PRL(ng/mL)': null,
+                'Vit D3 (ng/mL)': null,
+                'PRG(ng/mL)': null,
+                'RBS(mg/dl)': null,
+                'Weight gain(Y/N)': null,
+                'hair growth(Y/N)': null,
+                'Skin darkening (Y/N)': null,
+                'Fast food (Y/N)': null,
+                'Follicle No. (L)': null,
+                'Follicle No. (R)': null,
+                'Avg. F size (L) (mm)': null,
+                'Avg. F size (R) (mm)': null,
+                'Endometrium (mm)': null,
+                'Avg_Follicle_Count': null,
+            },
+            sections: {
+                basic: [
+                    { key: 'Age (yrs)', label: 'Age', help: 'Your age in years.', type: 'number', unit: 'years', min: 10, max: 100, step: 1 },
+                    { key: 'Weight (Kg)', label: 'Weight', help: 'Use kilograms.', type: 'number', unit: 'kg', min: 1, max: 500, step: 0.1 },
+                    { key: 'Height(Cm)', label: 'Height', help: 'Use centimeters.', type: 'number', unit: 'cm', min: 50, max: 250, step: 0.1 },
+                    { key: 'BMI', label: 'BMI', help: 'Calculated from height and weight.', type: 'derived', unit: 'kg/m²' },
+                    { key: 'Hip(inch)', label: 'Hip circumference', help: 'Measure in inches.', type: 'number', unit: 'in', min: 1, max: 100, step: 0.1 },
+                    { key: 'Waist(inch)', label: 'Waist circumference', help: 'Measure in inches.', type: 'number', unit: 'in', min: 1, max: 100, step: 0.1 },
+                    { key: 'Waist:Hip Ratio', label: 'Waist:Hip Ratio', help: 'Calculated from waist and hip measurements.', type: 'derived', unit: 'ratio' },
+                    { key: 'Hb(g/dl)', label: 'Hemoglobin', help: 'From your blood report.', type: 'number', unit: 'g/dL', min: 0, max: 30, step: 0.1 },
+                    { key: 'No. of aborptions', label: 'Number of abortions', help: 'Enter 0 if not applicable.', type: 'number', unit: 'count', min: 0, max: 50, step: 1 },
+                ],
+                hormones: [
+                    { key: 'Cycle(R/I)', label: 'Cycle pattern', help: 'Choose your usual pattern.', type: 'cycle' },
+                    { key: 'Cycle length(days)', label: 'Cycle length', help: 'Days from period to period.', type: 'number', unit: 'days', min: 1, max: 120, step: 1 },
+                    { key: 'Marraige Status (Yrs)', label: 'Marriage status duration', help: 'Enter 0 if not applicable.', type: 'number', unit: 'years', min: 0, max: 100, step: 1 },
+                    { key: 'FSH(mIU/mL)', label: 'FSH', help: 'From your hormone panel.', type: 'number', unit: 'mIU/mL', min: 0, max: 200, step: 0.01 },
+                    { key: 'LH(mIU/mL)', label: 'LH', help: 'From your hormone panel.', type: 'number', unit: 'mIU/mL', min: 0, max: 200, step: 0.01 },
+                    { key: 'FSH/LH', label: 'FSH/LH', help: 'Enter the report value.', type: 'number', unit: 'ratio', min: 0, max: 100, step: 0.01 },
+                    { key: 'I   beta-HCG(mIU/mL)', label: 'I beta-HCG', help: 'From your report.', type: 'number', unit: 'mIU/mL', min: 0, max: 100000, step: 0.01 },
+                    { key: 'II    beta-HCG(mIU/mL)', label: 'II beta-HCG', help: 'From your report.', type: 'number', unit: 'mIU/mL', min: 0, max: 100000, step: 0.01 },
+                    { key: 'TSH (mIU/L)', label: 'TSH', help: 'From your thyroid panel.', type: 'number', unit: 'mIU/L', min: 0, max: 100, step: 0.01 },
+                    { key: 'AMH(ng/mL)', label: 'AMH', help: 'From your hormone panel.', type: 'number', unit: 'ng/mL', min: 0, max: 100, step: 0.01 },
+                    { key: 'PRL(ng/mL)', label: 'PRL', help: 'From your hormone panel.', type: 'number', unit: 'ng/mL', min: 0, max: 1000, step: 0.01 },
+                    { key: 'Vit D3 (ng/mL)', label: 'Vitamin D3', help: 'From your blood report.', type: 'number', unit: 'ng/mL', min: 0, max: 500, step: 0.01 },
+                    { key: 'PRG(ng/mL)', label: 'PRG', help: 'From your hormone panel.', type: 'number', unit: 'ng/mL', min: 0, max: 1000, step: 0.01 },
+                    { key: 'RBS(mg/dl)', label: 'Random blood sugar', help: 'From your blood report.', type: 'number', unit: 'mg/dL', min: 0, max: 1000, step: 0.1 },
+                ],
+                ultrasound: [
+                    { key: 'Follicle No. (L)', label: 'Follicle count — left', help: 'Left ovary count.', unit: 'count', min: 0, max: 100, step: 1 },
+                    { key: 'Follicle No. (R)', label: 'Follicle count — right', help: 'Right ovary count.', unit: 'count', min: 0, max: 100, step: 1 },
+                    { key: 'Avg_Follicle_Count', label: 'Average follicle count', help: 'Average count if listed.', unit: 'count', min: 0, max: 100, step: 0.1 },
+                    { key: 'Avg. F size (L) (mm)', label: 'Average follicle size — left', help: 'Left ovary average.', unit: 'mm', min: 0, max: 100, step: 0.1 },
+                    { key: 'Avg. F size (R) (mm)', label: 'Average follicle size — right', help: 'Right ovary average.', unit: 'mm', min: 0, max: 100, step: 0.1 },
+                    { key: 'Endometrium (mm)', label: 'Endometrium', help: 'Endometrial thickness.', unit: 'mm', min: 0, max: 100, step: 0.1 },
+                ],
+                lifestyle: [
+                    { key: 'Weight gain(Y/N)', label: 'Weight gain', help: 'Have you experienced weight gain?' },
+                    { key: 'hair growth(Y/N)', label: 'Excess hair growth', help: 'Have you noticed excess hair growth?' },
+                    { key: 'Skin darkening (Y/N)', label: 'Skin darkening', help: 'Have you noticed skin darkening?' },
+                    { key: 'Fast food (Y/N)', label: 'Fast food', help: 'Do you regularly eat fast food?' },
+                ],
+            },
+            get bmiValue() {
+                const weight = Number(this.state['Weight (Kg)']);
+                const height = Number(this.state['Height(Cm)']);
+                return weight > 0 && height > 0 ? weight / Math.pow(height / 100, 2) : null;
+            },
+            get waistHipRatioValue() {
+                const waist = Number(this.state['Waist(inch)']);
+                const hip = Number(this.state['Hip(inch)']);
+                return waist > 0 && hip > 0 ? waist / hip : null;
+            },
+            derivedDisplay(key) {
+                const value = key === 'BMI' ? this.bmiValue : this.waistHipRatioValue;
+                return value === null ? '—' : value.toFixed(2);
+            },
+            allFields() {
+                return [...this.sections.basic, ...this.sections.hormones, ...this.sections.ultrasound, ...this.sections.lifestyle];
+            },
+            isComplete() {
+                return this.allFields().every(field => {
+                    const value = this.state[field.key];
+                    if (field.type === 'derived') return this.derivedDisplay(field.key) !== '—';
+                    if (field.type === 'cycle') return value === 'Regular' || value === 'Irregular';
+                    if (field.type === 'binary') return value === true || value === false;
+                    return value !== null && value !== '' && Number.isFinite(Number(value));
+                });
+            },
+            selectFile(event) {
+                this.setFile(event.target.files[0]);
+            },
+            dropFile(event) {
+                this.setFile(event.dataTransfer.files[0]);
+            },
+            setFile(file) {
+                this.errorMessage = '';
+                if (!file) return;
+                const allowed = ['application/pdf', 'image/jpeg', 'image/png'];
+                const extensionAllowed = /\.(pdf|jpe?g|png)$/i.test(file.name);
+                if ((!allowed.includes(file.type) && !extensionAllowed) || file.size > 10 * 1024 * 1024) {
+                    this.file = null;
+                    this.errorMessage = 'Please choose a PDF, JPG, or PNG file up to 10 MB.';
+                    return;
+                }
+                this.file = file;
+            },
+            csrfToken() {
+                const cookie = document.cookie.split('; ').find(row => row.startsWith('csrftoken='));
+                return cookie ? decodeURIComponent(cookie.split('=')[1]) : document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+            },
+            async submit() {
+                this.errorMessage = '';
+                this.uploadMessage = '';
+                if (!this.isComplete()) {
+                    this.errorMessage = 'Please complete every clinical field before calculating your risk.';
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    return;
+                }
+                this.loading = true;
+                const features = { ...this.state, 'BMI': Number(this.bmiValue.toFixed(2)), 'Waist:Hip Ratio': Number(this.waistHipRatioValue.toFixed(2)) };
+                try {
+                    const response = await fetch('{% url "ml_engine:predict" %}', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRFToken': this.csrfToken() },
+                        body: JSON.stringify({ assessment_type: 'clinical', features }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'We could not calculate your clinical result. Please try again.');
+                    this.result = data;
+                    if (this.file) await this.uploadReport(data.assessment_id);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } catch (error) {
+                    this.errorMessage = error.message || 'Something went wrong. Please try again.';
+                } finally {
+                    this.loading = false;
+                }
+            },
+            async uploadReport(assessmentId) {
+                const formData = new FormData();
+                formData.append('assessment_id', assessmentId);
+                formData.append('report', this.file);
+                const response = await fetch('{% url "clinical:upload_report" %}', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json', 'X-CSRFToken': this.csrfToken() },
+                    body: formData,
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Your result was saved, but the report could not be uploaded.');
+                this.uploadMessage = `Report saved: ${data.filename}`;
+            },
+            formatProbability(value) {
+                return `${(Number(value) * 100).toFixed(1)}%`;
+            },
+            riskClass() {
+                const tier = this.result?.risk_tier;
+                if (tier === 'Low Risk' || tier === 'low') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                if (tier === 'Moderate Risk' || tier === 'moderate') return 'border-amber-200 bg-amber-50 text-amber-800';
+                if (tier === 'High Risk' || tier === 'high') return 'border-red-200 bg-red-50 text-red-800';
+                return 'border-slate-200 bg-slate-50 text-slate-700';
+            },
+        };
+    }
+</script>
+{% endblock %}
