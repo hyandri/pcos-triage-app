@@ -9,7 +9,10 @@ from django.views.decorators.http import require_POST
 from accounts.models import AssessmentSession
 from .utils import FeatureValidationError, InferenceError, ModelArtifactError, predict
 
+from django.views.decorators.csrf import csrf_exempt
 
+
+@csrf_exempt
 @login_required
 @require_POST
 def prediction_view(request):
